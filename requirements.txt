@@ -1,0 +1,4 @@
+gradio
+gpt4all
+nomic
+requests
