@@ -2,6 +2,12 @@
 
 Minimal RAG (retrieval-augmented generation) demo in Python using the [Atlas](atlas.nomic.ai) API for semantic search and [GPT4All](nomic.ai/gpt4all) for local LLM generation.
 
+
+
+https://github.com/user-attachments/assets/256e87b5-9773-4f69-b9dc-bd94562b9379
+
+
+
 ## Running the demo
 
 1. Clone this repository
