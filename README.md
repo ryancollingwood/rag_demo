@@ -1,6 +1,6 @@
 # Nomic RAG Demo
 
-Minimal RAG (retrieval-augmented generation) demo in Python using the [Atlas](atlas.nomic.ai) API for semantic search and [GPT4All](nomic.ai/gpt4all) for local LLM generation. UI made with (gradio)[gradio.app].
+Minimal RAG (retrieval-augmented generation) demo in Python using the [Atlas](atlas.nomic.ai) API for semantic search and [GPT4All](nomic.ai/gpt4all) for local LLM generation. UI made with [gradio](gradio.app).
 
 
 
