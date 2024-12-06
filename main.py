@@ -64,29 +64,34 @@ def retrieve_with_state(query, proj_id, df, top_k=5):
 # setup Gradio layout
 
 css = """
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
+
 .container {
+    border: 1px solid #116044;
+    border-radius: 10px;
     max-width: 1400px;
-    margin: auto;
+    margin: 0 auto;
     padding: 20px;
+    background-color: #FEFBF6;
+    font-family: 'Inter', sans-serif;
 }
 .header {
     text-align: center;
-    margin-bottom: 40px;
+    margin-bottom: 20px;
     padding: 20px;
-    background-color: #f7f7f7;
     border-radius: 10px;
 }
 .chat-container {
-    border: 1px solid #e0e0e0;
+    border: 1px solid #116044;
     border-radius: 10px;
     padding: 20px;
-    background-color: white;
+    box-shadow: 0 2px 4px rgba(17, 96, 68, 0.1);
 }
 .context-container {
-    border: 1px solid #e0e0e0;
+    border: 1px solid #116044;
     border-radius: 10px;
     padding: 20px;
-    background-color: #f9f9f9;
+    box-shadow: 0 2px 4px rgba(17, 96, 68, 0.1);
 }
 """
 
