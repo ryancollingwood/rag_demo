@@ -1,14 +1,18 @@
-from gpt4all import GPT4All
-import gradio as gr
-import json
-from nomic import AtlasDataset
-import requests
 import os
+import json
+import requests
+from gpt4all import GPT4All
+from nomic import AtlasDataset
+import gradio as gr
+from gradio_checkboxgroupmarkdown import CheckboxGroupMarkdown
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # setup GPT4All LLM
 model_name = "Meta-Llama-3-8B-Instruct.Q4_0.gguf"
 model = GPT4All(model_name)
-system_prompt = "You are a helpful assistant. Use the following context to answer the user's question:"
+system_prompt_default = "You are a helpful assistant. Use the following context to answer the user's question:"
 max_tokens = 1024
 
 def get_projection_id(org_name, data_name) -> str:
@@ -21,24 +25,27 @@ def get_projection_id(org_name, data_name) -> str:
   )
   return data_response.json()["atlas_indices"][0]["projections"][0]["id"]
 
+def update_choices(choices):
+    return gr.update(choices=choices, value=[])
+
 # retrieval function
 # temp: use data DF to convert data ids to data text values 
 # (not currently returned from v1/query/topk)
-def retrieve_with_state(query, proj_id, df, top_k=5):
+def retrieve_with_state(query, proj_id, df, top_k=10):
     """Uses the Nomic Atlas API to retrieve data most similar to the query"""
+    
+    id_col = os.environ.get('PROPERTY_ID', '_id')
+    text_col = os.environ.get('PROPERTY_TEXT', 'text')
+    additional_cols = os.environ.get('PROPERTY_ADDITIONAL', '').split(',')
+
     if proj_id is None or df is None:
         return "Please load a dataset first."
             
     rag_request_payload = {
         "projection_id": proj_id,
         "k": top_k,
+        "fields": [id_col, text_col] + additional_cols,
         "query": query,
-        "selection": { # temporary, selection param will soon be optional for this query endpoint
-            "polarity": True,
-            "method": "composition",
-            "conjunctor": "ALL",
-            "filters": [{"method": "search", "query": " ", "field": "text"}]
-        }
     }
     
     rag_response = requests.post(
@@ -51,49 +58,20 @@ def retrieve_with_state(query, proj_id, df, top_k=5):
     )
     
     # temp: use data DF to convert data ids to data text values 
-    # (not currently returned from v1/query/topk)
     results = rag_response.json()
-    formatted_results = ""
-    for idx, data_id in enumerate(results['data'], 1):
-        id_ = data_id['id_']
-        matching_rows = df[df['id_'] == id_]
-        for _, row in matching_rows.iterrows():
-            formatted_results += f"Result {idx} (Atlas ID: {id_}):\n{row.text}\n\n"
-    return formatted_results
-
-# setup Gradio layout
-
-css = """
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
-
-.container {
-    border: 1px solid #116044;
-    border-radius: 10px;
-    max-width: 1400px;
-    margin: 0 auto;
-    padding: 20px;
-    background-color: #FEFBF6;
-    font-family: 'Inter', sans-serif;
-}
-.header {
-    text-align: center;
-    margin-bottom: 20px;
-    padding: 20px;
-    border-radius: 10px;
-}
-.chat-container {
-    border: 1px solid #116044;
-    border-radius: 10px;
-    padding: 20px;
-    box-shadow: 0 2px 4px rgba(17, 96, 68, 0.1);
-}
-.context-container {
-    border: 1px solid #116044;
-    border-radius: 10px;
-    padding: 20px;
-    box-shadow: 0 2px 4px rgba(17, 96, 68, 0.1);
-}
-"""
+    formatted_results = list()
+    for idx, result_data in enumerate(results['data'], 1):
+        id_ = result_data[id_col]
+        content = result_data[text_col]
+        formatted_result = f"Result {idx} (Atlas ID: {id_})"
+        
+        for col in additional_cols:
+            formatted_result = f"{formatted_result} ({col}: {result_data[col]})"
+        
+        formatted_result = f"{formatted_result}:\n{content}"
+        formatted_results.append(formatted_result)
+        
+    return "\n\n".join(formatted_results)
 
 def load_atlas_data(dataset_name):
     """Load Atlas dataset and return the dataframe"""
@@ -103,7 +81,7 @@ def load_atlas_data(dataset_name):
         return None
 
 
-with gr.Blocks(css=css) as demo:
+with gr.Blocks() as demo:
     # Add state variables to store across sessions
     atlas_df_state = gr.State(None)
     projection_id_state = gr.State(None)
@@ -115,22 +93,29 @@ with gr.Blocks(css=css) as demo:
                 org_name = gr.Textbox(
                     label="Organization Name",
                     placeholder="e.g. nomic",
-                    scale=1
+                    scale=1,
+                    value=os.getenv("NOMIC_ORG_ID"),
                 )
                 dataset_name = gr.Textbox(
                     label="Dataset Name",
                     placeholder="e.g. example-text-dataset-news",
-                    scale=2
+                    scale=2,
+                    value=os.getenv("NOMIC_DATASET_NAME"),
                 )
                 load_button = gr.Button("Load Dataset", scale=1)
             status_message = gr.Markdown("")
 
-        
         with gr.Row(equal_height=True):
             with gr.Column(scale=2):
                 with gr.Column(elem_classes="chat-container"):
                     gr.Markdown(f"### Chat Session")
                     gr.Markdown(f"LLM loaded: {model_name}")
+                    system_prompt = gr.Textbox(
+                        label="System Prompt",
+                        scale=1,
+                        lines=2,
+                        value=system_prompt_default,
+                    )
                     chatbot = gr.Chatbot(
                         show_label=False,
                         container=True,
@@ -144,6 +129,7 @@ with gr.Blocks(css=css) as demo:
                             scale=10
                         )
                         submit = gr.Button("Send", scale=1)
+                        summarize = gr.Button("Summarize", scale=1)
                     with gr.Row():
                         clear = gr.Button("Clear Chat")
                         
@@ -157,6 +143,7 @@ with gr.Blocks(css=css) as demo:
                     )
 
     def load_dataset(org, dataset):
+        # TODO given the top_k endpoint does return the text values, we can remove the need for the df
         """Load the dataset and update state variables"""
         if not org or not dataset:
             return None, None, "⚠️ Please enter both organization and dataset names"
@@ -179,7 +166,7 @@ with gr.Blocks(css=css) as demo:
     def user(user_message, history: list):
         return "", history + [(user_message, None)]
 
-    def bot(history, context: str):
+    def bot(system_prompt, history, context: str):
         formatted_messages = [
             {
                 'role': 'system', 
@@ -208,7 +195,39 @@ with gr.Blocks(css=css) as demo:
             for chunk in response:
                 history[-1] = (history[-1][0], history[-1][1] + chunk)
                 yield history
+                
+    def bot_summary(history):
+        summary_prompt = "Summarize the conversation"
+        formatted_messages = [
+                    {
+                        'role': 'system', 
+                        'content': summary_prompt
+                    }
+                ]
+        
+        # Convert history to LLM format
+        for user_msg, bot_msg in history:
+            if user_msg:
+                formatted_messages.append({'role': 'user', 'content': user_msg})
+            if bot_msg:
+                formatted_messages.append({'role': 'assistant', 'content': bot_msg})
 
+        full_prompt = "\n".join([m['content'] for m in formatted_messages])
+        
+        # Get the last user message that doesn't have a response
+        history[-1] = (history[-1][0], "")  # Initialize bot's response
+        
+        with model.chat_session():
+            response = model.generate(
+                full_prompt,
+                max_tokens=max_tokens,
+                streaming=True
+            )
+            for chunk in response:
+                history[-1] = (history[-1][0], history[-1][1] + chunk)
+                yield history
+
+        
     def get_context(history, proj_id, df):
         if not history:
             return ""
@@ -226,7 +245,7 @@ with gr.Blocks(css=css) as demo:
     ).then(
         get_context, [chatbot, projection_id_state, atlas_df_state], context_display
     ).then(
-        bot, [chatbot, context_display], chatbot
+        bot, [system_prompt, chatbot, context_display], chatbot
     )
 
     # Update the submit button click handler similarly
@@ -235,8 +254,14 @@ with gr.Blocks(css=css) as demo:
     ).then(
         get_context, [chatbot, projection_id_state, atlas_df_state], context_display
     ).then(
-        bot, [chatbot, context_display], chatbot
+        bot, [system_prompt, chatbot, context_display], chatbot
     )
+    
+    summarize.click(
+        user, [msg, chatbot], [msg, chatbot], queue=False
+    ).then(
+        bot_summary, [chatbot], chatbot
+    ) # TODO condense the history to just last response
     
     clear.click(lambda: (None, ""), None, [chatbot, context_display], queue=False)
 
